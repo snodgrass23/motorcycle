@@ -1,0 +1,297 @@
+<html>
+  <head>
+    <title>My first Three.js app</title>
+    <style>canvas { width: 100%; height: 100% }</style>
+  </head>
+  <body>
+    <script src="three.min.js"></script>
+    <script>
+
+      function Terrain(detail) {
+        this.size = Math.pow(2, detail) + 1;
+        this.max = this.size - 1;
+        this.geometry = new THREE.PlaneGeometry(this.size, this.size, this.max, this.max);
+        this.geometry.applyMatrix(new THREE.Matrix4().makeRotationX( -Math.PI / 2 ));
+        this.geometry.applyMatrix(new THREE.Matrix4().makeTranslation(this.size / 2, 0, this.size / 2));
+        this.material = new THREE.MeshLambertMaterial({
+          color: 0xffffff,
+          wrapAround: true,
+          shading: THREE.FlatShading,
+          vertexColors: THREE.FaceColors
+        });
+        this.mesh = new THREE.Mesh(this.geometry, this.material);
+        //this.mesh.castShadow = true;
+        //this.mesh.receiveShadow = true;
+      }
+
+      Terrain.prototype.get = function(x, z) {
+        if (x < 0 || x > this.max || z < 0 || z > this.max) return false;
+        return this.geometry.vertices[x + this.size * z].y;
+      };
+
+      Terrain.prototype.set = function(x, z, val) {
+        this.geometry.vertices[x + this.size * z].y = val;
+      };
+
+      Terrain.prototype.getNearest = function(x, z) {
+        return this.get(~~x, ~~z);
+      };
+
+      Terrain.prototype.update = function() {
+        this.geometry.computeFaceNormals();
+        this.geometry.computeVertexNormals();
+      }
+
+      Terrain.prototype.generate = function(roughness) {
+        var self = this;
+
+        this.set(0, 0, 0);
+        this.set(this.max, 0, 0);
+        this.set(this.max, this.max, 0);
+        this.set(0, this.max, 0);
+
+        divide(this.max);
+        this.update();
+
+        function divide(size) {
+          var x, y, half = size / 2;
+          var scale = roughness * size;
+          if (half < 1) return;
+
+          for (y = half; y < self.max; y += size) {
+            for (x = half; x < self.max; x += size) {
+              square(x, y, half, Math.random() * scale * 2 - scale);
+            }
+          }
+          for (y = 0; y <= self.max; y += half) {
+            for (x = (y + half) % size; x <= self.max; x += size) {
+              diamond(x, y, half, Math.random() * scale * 2 - scale);
+            }
+          }
+          divide(size / 2);
+        }
+
+        function average(values) {
+          var valid = values.filter(function(val) { return val !== false; });
+          var total = valid.reduce(function(sum, val) { return sum + val; }, 0);
+          return total / valid.length;
+        }
+
+        function square(x, y, size, offset) {
+          var ave = average([
+            self.get(x - size, y - size),   // upper left
+            self.get(x + size, y - size),   // upper right
+            self.get(x + size, y + size),   // lower right
+            self.get(x - size, y + size)    // lower left
+          ]);
+          self.set(x, y, ave + offset);
+        }
+
+        function diamond(x, y, size, offset) {
+          var ave = average([
+            self.get(x, y - size),      // top
+            self.get(x + size, y),      // right
+            self.get(x, y + size),      // bottom
+            self.get(x - size, y)       // left
+          ]);
+          self.set(x, y, ave + offset);
+        }
+      };
+
+      function Sun(time) {
+        this.light = new THREE.DirectionalLight(0xffffff, 0.6);
+        this.setTime(time);
+      }
+
+      Sun.prototype.setTime = function(time) {
+        this.time = time;
+        var x = Math.cos(Math.PI * time);
+        var y = Math.sin(Math.PI * time);
+        this.light.position.set(x, y, 0);
+      };
+
+      Sun.prototype.moveTime = function(delta) {
+        this.setTime(this.time + delta);
+      };
+
+      function Atmosphere() {
+        this.light = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+        this.light.color.setHSL( 0.6, 1, 0.6 );
+        this.light.groundColor.setHSL( 0.095, 1, 0.75 );
+        this.light.position.set( 0, 500, 0 );
+      }
+
+      function Player() {
+        this.height = 2;  // meters
+        this.facingY = 0;  // radians
+        this.speed = 3;   // meters / second
+        this.facingX = 0; // radians
+
+        this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.position = this.camera.position;
+
+        this.controls = new Controls();
+      }
+
+      Player.prototype.update = function(seconds, terrain) {
+        if (this.controls.actions.forward) {
+          this.camera.translateZ(-this.speed * seconds);
+        }
+        if (this.controls.actions.back) {
+          this.camera.translateZ(this.speed * seconds * 0.5);
+        }
+        if (this.controls.actions.left) {
+          this.camera.translateX(-this.speed * seconds * 0.5);
+        }
+        if (this.controls.actions.right) {
+          this.camera.translateX(this.speed * seconds * 0.5);
+        }
+
+        var groundY = terrain.getNearest(this.camera.position.x, this.camera.position.z);
+        var y = groundY + this.height;
+        this.camera.position.y = groundY + this.height;
+
+        this.facingY -= seconds * this.controls.mouseX * 3;
+        this.facingX += seconds * this.controls.mouseY * 2;
+
+        if (this.facingX < Math.PI * -0.15) this.facingX = Math.PI * -0.15;
+        else if (this.facingX > Math.PI * 0.15) this.facingX = Math.PI * 0.15;
+
+        var direction = new THREE.Vector3(0, 0, 1);
+        direction.applyAxisAngle(new THREE.Vector3(1, 0, 0), this.facingX);
+        direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.facingY);
+        direction.add(this.camera.position);
+        this.camera.lookAt(direction);
+      };
+
+      function Controls() {
+        this.onMouseMove = this.onMouseMove.bind(this);
+        this.onMouseDown = this.onMouseDown.bind(this);
+        this.onMouseUp = this.onMouseUp.bind(this);
+        this.onKeyDown = this.onKeyDown.bind(this);
+        this.onKeyUp = this.onKeyUp.bind(this);
+        
+        this.actions = {
+          forward: 0,
+          left: 0,
+          back: 0,
+          right: 0
+        };
+
+        this.keyCodes = {};
+
+        this.mouseX = 0;
+        this.mouseY = 0;
+
+        this.bindAction('forward', [38, 87]); // up, w
+        this.bindAction('back', [40, 83]);    // down, s
+        this.bindAction('left', [37, 65]);    // left, a
+        this.bindAction('right', [39, 68]);   // right, d
+
+        this.listen();
+      }
+
+      Controls.prototype.listen = function() {
+        document.addEventListener( 'contextmenu', function (e) {
+          e.preventDefault();
+        }, false );
+        document.addEventListener( 'mousemove', this.onMouseMove, false );
+        document.addEventListener( 'mousedown', this.onMouseDOwn, false );
+        document.addEventListener( 'mouseup', this.onMouseUp, false );
+        document.addEventListener( 'keydown', this.onKeyDown, false );
+        document.addEventListener( 'keyup', this.onKeyUp, false );
+      };
+
+      Controls.prototype.onMouseMove = function(e) {
+        this.mouseX = e.pageX / window.innerWidth - 0.5;
+        this.mouseY = e.pageY / window.innerHeight - 0.5;
+      };
+
+      Controls.prototype.onMouseDown = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      Controls.prototype.onMouseUp = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      Controls.prototype.bindAction = function(state, codes) {
+        codes.forEach(function(code) {
+          this.keyCodes[code] = state
+        }.bind(this));
+      };
+
+      Controls.prototype.onKeyDown = function(e) {
+        var action = this.keyCodes[e.keyCode];
+        if (action) {
+          this.actions[action] = true;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+
+      Controls.prototype.onKeyUp = function(e) {
+        var action = this.keyCodes[e.keyCode];
+        if (action) {
+          this.actions[action] = false;
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+
+      function debugAxis(axisLength){
+          //Shorten the vertex function
+          function v(x,y,z){ 
+                  return new THREE.Vertex(new THREE.Vector3(x,y,z)); 
+          }
+          
+          //Create axis (point1, point2, colour)
+          function createAxis(p1, p2, color){
+                  var line, lineGeometry = new THREE.Geometry(),
+                  lineMat = new THREE.LineBasicMaterial({color: color, lineWidth: 1});
+                  lineGeometry.vertices.push(p1, p2);
+                  line = new THREE.Line(lineGeometry, lineMat);
+                  scene.add(line);
+          }
+          
+          createAxis(v(-axisLength, 0, 0), v(axisLength, 0, 0), 0xFF0000);
+          createAxis(v(0, -axisLength, 0), v(0, axisLength, 0), 0x00FF00);
+          createAxis(v(0, 0, -axisLength), v(0, 0, axisLength), 0x0000FF);
+      };
+
+      var scene = new THREE.Scene();
+      var renderer = new THREE.WebGLRenderer();
+      var clock = new THREE.Clock();
+
+      var terrain = new Terrain(7); // 128 * 128 meters = 0.08 square miles
+      var sun = new Sun(0.25);
+      var atmosphere = new Atmosphere();
+      var player = new Player();
+      
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMapEnabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      terrain.generate(0.2);
+
+      debugAxis(100);
+      scene.add(atmosphere.light);
+      scene.add(sun.light);
+      scene.add(terrain.mesh);
+
+      requestAnimationFrame(render);
+
+      function render() {
+        var delta = clock.getDelta();
+        requestAnimationFrame(render);
+        sun.moveTime(0.002);
+        player.update(delta, terrain);
+        renderer.render(scene, player.camera);
+      };
+
+    </script>
+  </body>
+</html>
