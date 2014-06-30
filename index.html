@@ -115,6 +115,7 @@
         this.debug.innerHTML = [
           'mph: ' + this.bike.getMPH(),
           'rpm: ' + this.bike.rpm,
+          'gear: ' + this.bike.gear,
           'torque: ' + this.bike.getTorque()
         ].join('<br />');
         requestAnimationFrame(this.frame);
@@ -154,8 +155,10 @@
         this.tireFriction = 1.2;          // TODO - use this
       }
 
-      Motorcycle.prototype.update = function(seconds, controls) {
+      Motorcycle.prototype.update = function(seconds, total, controls) {
         this.flywheel = 1 - controls.clutch;
+
+        if (total > 5) this.gear = 2;
 
         var ratio = this.getRatio();
         var engineTorque = ratio * this.getTorque() * controls.throttle * this.flywheel;
@@ -226,7 +229,8 @@
       TouchControls.prototype.update = function(seconds, total) {
         this.clutch -= seconds * 2;
         if (this.clutch < 0) this.clutch = 0;
-        if (total > 5) this.clutch = 1;
+        if (total > 5) this.throttle = 0.8;
+        if (total > 50) this.clutch = 1;
       };
 
       var map = new Map();
@@ -245,7 +249,7 @@
 
       sim.start(function frame(seconds, total) {
         controls.update(seconds, total);
-        bike.update(seconds, controls.getState());
+        bike.update(seconds, total, controls.getState());
         map.update(seconds);
       });
 
