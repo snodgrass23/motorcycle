@@ -82,7 +82,7 @@
 
         var texture = THREE.ImageUtils.loadTexture( "avatar.jpg" );
 
-        var size = 402; // meters (about 1/4 mile)
+        var size = 50; // 402 meters = about 1/4 mile
         var geometry = new THREE.PlaneGeometry(size, size, 20, 20);
         geometry.applyMatrix(new THREE.Matrix4().makeRotationX( -Math.PI / 2 ));
         geometry.applyMatrix(new THREE.Matrix4().makeTranslation(size / 2, 0, size / 2));
@@ -142,15 +142,16 @@
       function Motorcycle() {
         this.lean = 0;
         this.direction = new THREE.Vector3(0, 0, 1);
-        this.position = new THREE.Vector3(100, 0, 0);
+        this.position = new THREE.Vector3(25, 0, -80);
         this.gear = 1;
         this.gears = [0, 2.46, 1.75, 1.38, 1.17, 1.07, 0.96];
         this.rpm = 0;
+        this.idleRPM = 1000;
         this.maxRPM = 8500;
         this.flywheel = 1;
         this.velocity = 0;                // meters / sec
-        this.dragCoefficient = 0.7;
-        this.rollingResistance = 100;     // no idea, just by feel
+        this.dragCoefficient = 0.9;
+        this.rollingResistance = 27;     // no idea, just by feel
         this.mass = 191;                  // kg
         this.riderMass = 80;              // kg
         this.wheelRadius = 0.056;         // meters (140/80-17 tire)
@@ -159,28 +160,37 @@
 
       Motorcycle.prototype.update = function(seconds, total, controls) {
         var fly = 1 - controls.clutch;
+        var throttle = this.getThrottle(controls.throttle);
         var ratio = this.getRatio();
         
-        var driveTorque = this.getTorque() * controls.throttle * ratio;
+        var driveTorque = this.getTorque() * throttle * ratio;
 
         // forces
         var drive = driveTorque / this.wheelRadius;
-        var drag = 0; //this.dragCoefficient * this.velocity * this.velocity;
-        var resistance = 0; //this.rollingResistance * this.velocity;
+        var drag = this.dragCoefficient * this.velocity * this.velocity;
+        var resistance = this.rollingResistance * this.velocity;
         var braking = 0;
-        var force = drive - braking - drag - resistance;
+
+        var chassisForces = -braking -drag -resistance;
+        var allForces = drive + chassisForces;
 
         // accelerate
-        var acceleration = force / (this.mass + this.riderMass);
+        var acceleration = allForces / (this.mass + this.riderMass);
         var impulse = acceleration * seconds;
+        var chassisAcceleration = chassisForces / (this.mass + this.riderMass);
         
-        // feedback
+        // rpm feedback
         var engagedRPM = this.getWheelRPM(this.velocity + impulse) * ratio;
         if (engagedRPM > this.maxRPM) engagedRPM = this.maxRPM;
-        var disengagedRPM = this.maxRPM * controls.throttle;
+        var disengagedRPM = this.maxRPM * throttle;
         if (disengagedRPM > this.maxRPM) disengagedRPM = this.maxRPM;
 
-        var velocity = (Math.PI * this.wheelRadius * engagedRPM * fly) / (30 * ratio) + this.velocity * (1 - fly);
+        // velocity feedback
+        var engagedVelocity = (Math.PI * this.wheelRadius * engagedRPM) / (30 * ratio);
+        var disengagedVelocity = this.velocity + chassisAcceleration * seconds;
+
+        // apply feedback
+        var velocity = engagedVelocity * fly + disengagedVelocity * (1 - fly);
         var rpm = engagedRPM * fly + disengagedRPM * (1 - fly);
 
         // update state
@@ -190,6 +200,11 @@
 
         // integrate velocity into position
         this.position.add(this.direction.clone().multiplyScalar(this.velocity * seconds));
+      };
+
+      Motorcycle.prototype.getThrottle = function(input) {
+        var min = this.idleRPM / this.maxRPM;
+        return input < min ? min : input;
       };
 
       // torque curve for bmw f700gs
@@ -237,7 +252,7 @@
       TouchControls.prototype.update = function(seconds, total) {
         this.clutch -= seconds;
         if (this.clutch < 0) this.clutch = 0;
-        if (total > 5) this.clutch = 1;
+        if (total > 3) this.clutch = 1;
       };
 
       var map = new Map();
@@ -250,7 +265,7 @@
       var test = new Motorcycle();
       test.gear = 1;
       test.setMPH(15);
-      console.log('rpm should be about 3000:', test.getWheelRPM() * test.getRatio());
+      console.log('rpm should be about 3000:', test.getWheelRPM(test.velocity) * test.getRatio());
 
       view.build(map, bike);
 
