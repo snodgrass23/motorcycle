@@ -151,8 +151,9 @@
         this.maxRPM = 8500;
         this.flywheel = 1;
         this.velocity = 0;                // meters / sec
-        this.dragCoefficient = 0.9;
-        this.rollingResistance = 27;      // 30 * dragCoefficient (guess)
+        this.dragCoefficient = 1;
+        this.rollingResistance = 30;      // 30 * dragCoefficient (guess)
+        this.engineBrake = 1;             // just guessing
         this.mass = 191;                  // kg
         this.riderMass = 80;              // kg
         this.wheelRadius = 0.056;         // meters (140/80-17 tire)
@@ -170,18 +171,20 @@
 
         // calculate all forces
         var drive = driveTorque / this.wheelRadius;
+        var engineBrake = -this.engineBrake * (1 - throttle) * this.rpm;
         var drag = -this.dragCoefficient * this.velocity * this.velocity;
         var resistance = -this.rollingResistance * this.velocity;
         var braking = 0;
 
         // find acceleration both with and without engine drive
         var chassisAcceleration = (braking + drag + resistance) / mass;
-        var acceleration = chassisAcceleration + drive / mass;
+        var acceleration = chassisAcceleration + (drive + engineBrake) / mass;
         var impulse = acceleration * seconds;
         
         // where would the engine rpm move with a fully engaged clutch?
         var engagedRPM = this.getWheelRPM(this.velocity + impulse) * ratio;
         if (engagedRPM > this.maxRPM) engagedRPM = this.maxRPM;
+        // TODO: if engagedRPM > current RPM, it just exerted a force and should be reduced
 
         // what would velocity be at this rpm?
         var engagedVelocity = (Math.PI * this.wheelRadius * engagedRPM) / (30 * ratio);
@@ -265,7 +268,7 @@
           this.clutch = 1;
           this.throttle = 0;
         }
-        if (total > 9) this.clutch = 0;
+        if (total > 7) this.clutch = 0;
       };
 
       var map = new Map();
