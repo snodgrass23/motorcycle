@@ -118,6 +118,7 @@
           'rpm: ' + this.bike.rpm,
           'gear: ' + this.bike.gear,
           'clutch: ' + (1 - this.bike.flywheel),
+          'throttle: ' + controls.throttle,
           'torque: ' + this.bike.getTorque()
         ].join('<br />');
         requestAnimationFrame(this.frame);
@@ -151,7 +152,7 @@
         this.flywheel = 1;
         this.velocity = 0;                // meters / sec
         this.dragCoefficient = 0.9;
-        this.rollingResistance = 27;     // no idea, just by feel
+        this.rollingResistance = 27;      // 30 * dragCoefficient (guess)
         this.mass = 191;                  // kg
         this.riderMass = 80;              // kg
         this.wheelRadius = 0.056;         // meters (140/80-17 tire)
@@ -162,34 +163,37 @@
         var fly = 1 - controls.clutch;
         var throttle = this.getThrottle(controls.throttle);
         var ratio = this.getRatio();
-        
+        var mass = this.getMass();
+
+        // calculate current torque level
         var driveTorque = this.getTorque() * throttle * ratio;
 
-        // forces
+        // calculate all forces
         var drive = driveTorque / this.wheelRadius;
-        var drag = this.dragCoefficient * this.velocity * this.velocity;
-        var resistance = this.rollingResistance * this.velocity;
+        var drag = -this.dragCoefficient * this.velocity * this.velocity;
+        var resistance = -this.rollingResistance * this.velocity;
         var braking = 0;
 
-        var chassisForces = -braking -drag -resistance;
-        var allForces = drive + chassisForces;
-
-        // accelerate
-        var acceleration = allForces / (this.mass + this.riderMass);
+        // find acceleration both with and without engine drive
+        var chassisAcceleration = (braking + drag + resistance) / mass;
+        var acceleration = chassisAcceleration + drive / mass;
         var impulse = acceleration * seconds;
-        var chassisAcceleration = chassisForces / (this.mass + this.riderMass);
         
-        // rpm feedback
+        // where would the engine rpm move with a fully engaged clutch?
         var engagedRPM = this.getWheelRPM(this.velocity + impulse) * ratio;
         if (engagedRPM > this.maxRPM) engagedRPM = this.maxRPM;
+
+        // what would velocity be at this rpm?
+        var engagedVelocity = (Math.PI * this.wheelRadius * engagedRPM) / (30 * ratio);
+
+        // where would the engine rpm move with a fully disengaged clutch?
         var disengagedRPM = this.maxRPM * throttle;
         if (disengagedRPM > this.maxRPM) disengagedRPM = this.maxRPM;
+        
+        // what would velocity be without any engine input?
+        var disengagedVelocity = this.velocity + chassisAcceleration * seconds;        
 
-        // velocity feedback
-        var engagedVelocity = (Math.PI * this.wheelRadius * engagedRPM) / (30 * ratio);
-        var disengagedVelocity = this.velocity + chassisAcceleration * seconds;
-
-        // apply feedback
+        // distribute engaged/disengaged velocity and rpm based on the flywheel position
         var velocity = engagedVelocity * fly + disengagedVelocity * (1 - fly);
         var rpm = engagedRPM * fly + disengagedRPM * (1 - fly);
 
@@ -200,6 +204,10 @@
 
         // integrate velocity into position
         this.position.add(this.direction.clone().multiplyScalar(this.velocity * seconds));
+      };
+
+      Motorcycle.prototype.getMass = function() {
+        return this.mass + this.riderMass;
       };
 
       Motorcycle.prototype.getThrottle = function(input) {
@@ -237,11 +245,12 @@
 
       function TouchControls() {
         this.clutch = 1;
+        this.throttle = 1;
       }
 
       TouchControls.prototype.getState = function() {
         return {
-          throttle: 1,
+          throttle: this.throttle,
           clutch: this.clutch,
           shift: 0,
           bars: 0,
@@ -252,7 +261,11 @@
       TouchControls.prototype.update = function(seconds, total) {
         this.clutch -= seconds;
         if (this.clutch < 0) this.clutch = 0;
-        if (total > 3) this.clutch = 1;
+        if (total > 3) {
+          this.clutch = 1;
+          this.throttle = 0;
+        }
+        if (total > 9) this.clutch = 0;
       };
 
       var map = new Map();
