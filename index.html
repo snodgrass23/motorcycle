@@ -80,7 +80,10 @@
         this.map = map;
         this.bike = bike;
 
-        var texture = THREE.ImageUtils.loadTexture( "avatar.jpg" );
+        var texture = THREE.ImageUtils.loadTexture( "road.png" );
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(4, 16);
 
         var size = 50; // 402 meters = about 1/4 mile
         var geometry = new THREE.PlaneGeometry(size, size, 20, 20);
